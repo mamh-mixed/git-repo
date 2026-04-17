@@ -2674,11 +2674,12 @@ class Project:
             # throws an error.
             revs = [f"{self.revisionExpr}^0"]
             upstream_rev = None
+            use_superproject_for_upstream = self.upstream and (
+                self._UseSuperprojectForUpstream(use_superproject)
+            )
 
             # Only check upstream when using superproject.
-            if self.upstream and git_superproject.UseSuperproject(
-                use_superproject, self.manifest
-            ):
+            if use_superproject_for_upstream:
                 upstream_rev = self.GetRemote().ToLocal(self.upstream)
                 revs.append(upstream_rev)
 
@@ -2692,9 +2693,7 @@ class Project:
 
             # Only verify upstream relationship for superproject scenarios
             # without affecting plain usage.
-            if self.upstream and git_superproject.UseSuperproject(
-                use_superproject, self.manifest
-            ):
+            if use_superproject_for_upstream:
                 self.bare_git.merge_base(
                     "--is-ancestor",
                     self.revisionExpr,
@@ -2722,6 +2721,16 @@ class Project:
                 if os.path.exists(os.path.join(proj.gitdir, "shallow")):
                     return True
         return False
+
+    def _UseSuperprojectForUpstream(
+        self, use_superproject: Optional[bool] = None
+    ) -> bool:
+        """Whether to include upstream in the immutability check.
+
+        The upstream ancestry check is only meaningful for projects
+        that participate in a superproject relationship.
+        """
+        return git_superproject.UseSuperproject(use_superproject, self.manifest)
 
     def _FetchArchive(self, tarpath, cwd=None):
         cmd = ["archive", "-v", "-o", tarpath]
@@ -4676,6 +4685,15 @@ class MetaProject(Project):
                 if base:
                     self.revisionExpr = base
                     self.revisionId = None
+
+    def _UseSuperprojectForUpstream(
+        self, use_superproject: Optional[bool] = None
+    ) -> bool:
+        # MetaProjects (the manifest repo and repo itself) never
+        # participate in a superproject relationship. Returning False
+        # here also avoids loading the manifest during `repo init`,
+        # before manifest.xml has been linked into .repo/.
+        return False
 
     @property
     def HasChanges(self):
